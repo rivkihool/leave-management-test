@@ -1,6 +1,120 @@
 <h2>Leave Requests</h2>
 
-<!-- TODO (candidate): add the "new request" form here, with validation. -->
+<!-- Success/Error Messages -->
+<div *ngIf="successMessage" class="alert alert-success">
+  {{ successMessage }}
+</div>
+<div *ngIf="errorMessage" class="alert alert-error">
+  {{ errorMessage }}
+</div>
+
+<!-- Toggle Button -->
+<button class="btn btn-primary" (click)="toggleForm()" [disabled]="submitting">
+  {{ showForm ? 'Cancel' : 'New Request' }}
+</button>
+
+<!-- New Request Form -->
+<div *ngIf="showForm" class="form-container">
+  <h3>Submit New Leave Request</h3>
+  <form [formGroup]="form" (ngSubmit)="onSubmit()">
+    <!-- Employee ID -->
+    <div class="form-group">
+      <label for="employeeId">Employee *</label>
+      <input
+        id="employeeId"
+        type="number"
+        formControlName="employeeId"
+        placeholder="Enter employee ID"
+        class="form-control"
+      />
+      <span class="error-message" *ngIf="getErrorMessage('employeeId')">
+        {{ getErrorMessage('employeeId') }}
+      </span>
+    </div>
+
+    <!-- Leave Type -->
+    <div class="form-group">
+      <label for="type">Leave Type *</label>
+      <select id="type" formControlName="type" class="form-control">
+        <option value="">-- Select Leave Type --</option>
+        <option value="0">Vacation</option>
+        <option value="1">Sick</option>
+        <option value="2">Unpaid</option>
+      </select>
+      <span class="error-message" *ngIf="getErrorMessage('type')">
+        {{ getErrorMessage('type') }}
+      </span>
+    </div>
+
+    <!-- Start Date -->
+    <div class="form-group">
+      <label for="startDate">Start Date *</label>
+      <input
+        id="startDate"
+        type="date"
+        formControlName="startDate"
+        class="form-control"
+      />
+      <span class="error-message" *ngIf="getErrorMessage('startDate')">
+        {{ getErrorMessage('startDate') }}
+      </span>
+    </div>
+
+    <!-- End Date -->
+    <div class="form-group">
+      <label for="endDate">End Date *</label>
+      <input
+        id="endDate"
+        type="date"
+        formControlName="endDate"
+        class="form-control"
+      />
+      <span class="error-message" *ngIf="getErrorMessage('endDate')">
+        {{ getErrorMessage('endDate') }}
+      </span>
+    </div>
+
+    <!-- Number of Days -->
+    <div class="form-group">
+      <label for="days">Number of Days *</label>
+      <input
+        id="days"
+        type="number"
+        formControlName="days"
+        placeholder="Number of days"
+        min="1"
+        class="form-control"
+      />
+      <span class="error-message" *ngIf="getErrorMessage('days')">
+        {{ getErrorMessage('days') }}
+      </span>
+    </div>
+
+    <!-- Form-level Errors -->
+    <div *ngIf="getFormErrorMessage()" class="alert alert-error form-error">
+      {{ getFormErrorMessage() }}
+    </div>
+
+    <!-- Submit Button -->
+    <div class="form-actions">
+      <button
+        type="submit"
+        class="btn btn-success"
+        [disabled]="!form.valid || submitting"
+      >
+        {{ submitting ? 'Submitting...' : 'Submit Request' }}
+      </button>
+      <button
+        type="button"
+        class="btn btn-secondary"
+        (click)="toggleForm()"
+        [disabled]="submitting"
+      >
+        Cancel
+      </button>
+    </div>
+  </form>
+</div>
 
 <div *ngIf="loading">Loading...</div>
 
