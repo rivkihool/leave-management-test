@@ -34,12 +34,12 @@ public class LeaveRequestsController : ControllerBase
     [HttpGet("search")]
     public IActionResult Search([FromQuery] string name)
     {
-        // Build a quick query to filter by the employee name.
-        var sql = "SELECT * FROM \"LeaveRequests\" WHERE \"EmployeeId\" IN " +
-                  "(SELECT \"Id\" FROM \"Employees\" WHERE \"Name\" LIKE '%" + name + "%')";
+        if (string.IsNullOrWhiteSpace(name))
+            return Ok(new List<LeaveRequest>());
 
         var results = _db.LeaveRequests
-            .FromSqlRaw(sql)
+            .Include(r => r.Employee)
+            .Where(r => r.Employee!.Name.Contains(name))
             .ToList();
 
         return Ok(results);
@@ -63,9 +63,9 @@ public class LeaveRequestsController : ControllerBase
             .Sum(r => r.Days);
 
         // Make sure the request does not exceed the quota.
-        if (dto.Type == LeaveType.Vacation && days > employee.AnnualQuota)
+        if (dto.Type == LeaveType.Vacation && (used + days) > employee.AnnualQuota)
         {
-            return BadRequest("Not enough vacation balance");
+            return BadRequest($"Not enough vacation balance. Used: {used} days, Requested: {days} days, Annual Quota: {employee.AnnualQuota} days.");
         }
 
         var request = new LeaveRequest

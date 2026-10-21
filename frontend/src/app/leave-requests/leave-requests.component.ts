@@ -31,7 +31,6 @@ export class LeaveRequestsComponent implements OnInit {
     });
   }
 
-  // Wired up by the candidate as part of the assignment.
   approve(id: number): void {
     // TODO (candidate): call POST /api/leave-requests/{id}/approve
     // and handle loading / error / success without a generic alert.
