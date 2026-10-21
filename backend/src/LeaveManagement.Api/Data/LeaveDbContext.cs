@@ -19,6 +19,11 @@ public class LeaveDbContext : DbContext
             modelBuilder.Entity<LeaveRequest>().Property(r => r.StartDate).HasColumnType("date");
             modelBuilder.Entity<LeaveRequest>().Property(r => r.EndDate).HasColumnType("date");
         }
+
+        // Configure RowVersion for optimistic concurrency control
+        modelBuilder.Entity<LeaveRequest>()
+            .Property(r => r.RowVersion)
+            .IsRowVersion();
     }
 
     public static void Seed(LeaveDbContext db)
@@ -30,15 +35,26 @@ public class LeaveDbContext : DbContext
         db.Employees.AddRange(dana, yossi);
         db.SaveChanges();
 
-        // Dana has already used 18 of her 20 days (approved).
+        // Dana has a pending request for 3 days (for testing approve)
         db.LeaveRequests.Add(new LeaveRequest
         {
             EmployeeId = dana.Id,
             Type = LeaveType.Vacation,
-            StartDate = new DateTime(2026, 1, 6),
-            EndDate = new DateTime(2026, 1, 23),
-            Days = 18,
-            Status = LeaveStatus.Approved
+            StartDate = new DateTime(2026, 3, 1),
+            EndDate = new DateTime(2026, 3, 3),
+            Days = 3,
+            Status = LeaveStatus.Pending
+        });
+
+        // Yossi has a pending sick leave request
+        db.LeaveRequests.Add(new LeaveRequest
+        {
+            EmployeeId = yossi.Id,
+            Type = LeaveType.Sick,
+            StartDate = new DateTime(2026, 2, 1),
+            EndDate = new DateTime(2026, 2, 2),
+            Days = 2,
+            Status = LeaveStatus.Pending
         });
         db.SaveChanges();
     }
