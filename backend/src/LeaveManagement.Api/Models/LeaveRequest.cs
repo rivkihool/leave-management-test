@@ -1,3 +1,5 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace LeaveManagement.Api.Models;
 
 public enum LeaveType
@@ -28,4 +30,8 @@ public class LeaveRequest
 
     // Number of calendar days the request covers (inclusive).
     public int Days { get; set; }
+
+    // Concurrency token for optimistic concurrency control
+    [Timestamp]
+    public byte[]? RowVersion { get; set; }
 }
