@@ -141,7 +141,21 @@
       <td>{{ r.days }}</td>
       <td>{{ statusLabel(r.status) }}</td>
       <td>
-        <button *ngIf="r.status == 0" (click)="approve(r.id)">Approve</button>
+        <div *ngIf="r.status == 0" class="action-cell">
+          <button 
+            (click)="approve(r.id)"
+            [disabled]="approvingIds.has(r.id)"
+            class="btn btn-sm btn-success"
+          >
+            {{ approvingIds.has(r.id) ? 'Approving...' : 'Approve' }}
+          </button>
+          <div *ngIf="approvalSuccess[r.id]" class="alert alert-success-inline">
+            ✓ Approved successfully
+          </div>
+          <div *ngIf="approvalErrors[r.id]" class="alert alert-error-inline">
+            {{ approvalErrors[r.id] }}
+          </div>
+        </div>
       </td>
     </tr>
   </tbody>
