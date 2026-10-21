@@ -164,3 +164,47 @@ table button {
   margin-right: 8px;
 }
 
+.action-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.alert-success-inline,
+.alert-error-inline {
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  margin: 0;
+  animation: slideIn 0.2s ease-in-out;
+}
+
+.alert-success-inline {
+  background: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+}
+
+.alert-error-inline {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+

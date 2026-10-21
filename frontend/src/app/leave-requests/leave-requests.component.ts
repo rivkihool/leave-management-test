@@ -23,6 +23,11 @@ export class LeaveRequestsComponent implements OnInit {
   successMessage = '';
   errorMessage = '';
 
+  // Approval state: tracks loading/error per request ID
+  approvingIds = new Set<number>();
+  approvalErrors: { [requestId: number]: string } = {};
+  approvalSuccess: { [requestId: number]: boolean } = {};
+
   form!: FormGroup;
 
   private apiUrl = 'http://localhost:5080/api/leave-requests';
@@ -115,12 +120,41 @@ export class LeaveRequestsComponent implements OnInit {
     }
   }
 
-  // Wired up by the candidate as part of the assignment.
   approve(id: number): void {
-    // TODO (candidate): call POST /api/leave-requests/{id}/approve
-    // and handle loading / error / success without a generic alert.
-    this.http.post<any>(this.apiUrl + '/' + id + '/approve', {}).subscribe(() => {
-      this.load();
+    // Set loading state for this specific request
+    this.approvingIds.add(id);
+    
+    // Clear any previous error/success messages for this request
+    delete this.approvalErrors[id];
+    delete this.approvalSuccess[id];
+
+    this.http.post<any>(`${this.apiUrl}/${id}/approve`, {}).subscribe({
+      next: () => {
+        // Update the request status locally instead of full reload
+        const request = this.requests.find(r => r.id === id);
+        if (request) {
+          request.status = 1; // 1 = Approved
+          this.approvalSuccess[id] = true;
+          
+          // Auto-clear success message after 3 seconds
+          setTimeout(() => {
+            delete this.approvalSuccess[id];
+          }, 3000);
+        }
+      },
+      error: (error) => {
+        const errorMessage = error.error?.message || 'Failed to approve leave request';
+        this.approvalErrors[id] = errorMessage;
+        
+        // Auto-clear error after 5 seconds
+        setTimeout(() => {
+          delete this.approvalErrors[id];
+        }, 5000);
+      },
+      complete: () => {
+        // Always remove loading state
+        this.approvingIds.delete(id);
+      }
     });
   }
 
