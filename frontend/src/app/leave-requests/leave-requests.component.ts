@@ -1,10 +1,11 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { takeUntil } from 'rxjs/operators';
 import { LeaveRequest } from '../models/leave-request.model';
 import { dateRangeValidator } from './validators/date-range.validator';
-import { noDaysValidator } from './validators/no-days.validator';
 
 // NOTE: This component was written quickly for a POC.
 // It talks to the API directly, manages state by hand and uses `any` everywhere.
@@ -15,8 +16,8 @@ import { noDaysValidator } from './validators/no-days.validator';
   templateUrl: './leave-requests.component.html',
   styleUrls: ['./leave-requests.component.css']
 })
-export class LeaveRequestsComponent implements OnInit {
-  requests: any[] = [];
+export class LeaveRequestsComponent implements OnInit, OnDestroy {
+  requests: LeaveRequest[] = [];
   loading = false;
   showForm = false;
   submitting = false;
@@ -31,11 +32,17 @@ export class LeaveRequestsComponent implements OnInit {
   form!: FormGroup;
 
   private apiUrl = 'http://localhost:5080/api/leave-requests';
+  private destroy$ = new Subject<void>();
 
   constructor(
     private http: HttpClient,
     private fb: FormBuilder
   ) {}
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 
   ngOnInit(): void {
     this.initForm();
@@ -48,21 +55,29 @@ export class LeaveRequestsComponent implements OnInit {
         employeeId: ['', [Validators.required]],
         type: ['', [Validators.required]],
         startDate: ['', [Validators.required]],
-        endDate: ['', [Validators.required]],
-        days: ['', [Validators.required, Validators.min(1)]]
+        endDate: ['', [Validators.required]]
       },
       {
-        validators: [dateRangeValidator(), noDaysValidator()]
+        validators: [dateRangeValidator()]
       }
     );
   }
 
   load(): void {
     this.loading = true;
-    this.http.get<any>(this.apiUrl).subscribe((data) => {
-      this.requests = data;
-      this.loading = false;
-    });
+    this.http.get<LeaveRequest[]>(this.apiUrl)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (data) => {
+          this.requests = data;
+          this.loading = false;
+        },
+        error: (error) => {
+          this.loading = false;
+          this.errorMessage = 'Failed to load leave requests. Please refresh the page.';
+          console.error('Load error:', error);
+        }
+      });
   }
 
 
@@ -80,11 +95,12 @@ export class LeaveRequestsComponent implements OnInit {
       employeeId: parseInt(formValue.employeeId),
       type: parseInt(formValue.type),
       startDate: this.formatDateForApi(formValue.startDate),
-      endDate: this.formatDateForApi(formValue.endDate),
-      days: parseInt(formValue.days)
+      endDate: this.formatDateForApi(formValue.endDate)
     };
 
-    this.http.post<LeaveRequest>(this.apiUrl, payload).subscribe({
+    this.http.post<LeaveRequest>(this.apiUrl, payload)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
       next: () => {
         this.successMessage = 'Leave request submitted successfully!';
         this.form.reset();
@@ -97,7 +113,7 @@ export class LeaveRequestsComponent implements OnInit {
       },
       error: (error) => {
         this.submitting = false;
-        this.errorMessage = error.error?.message || 'Failed to submit leave request. Please try again.';
+        this.errorMessage = error.error?.message || error.error || 'Failed to submit leave request. Please try again.';
       }
     });
   }
@@ -128,8 +144,10 @@ export class LeaveRequestsComponent implements OnInit {
     delete this.approvalErrors[id];
     delete this.approvalSuccess[id];
 
-    this.http.post<any>(`${this.apiUrl}/${id}/approve`, {}).subscribe({
-      next: () => {
+    this.http.post<{ message: string; data: LeaveRequest }>(`${this.apiUrl}/${id}/approve`, {})
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+      next: (response) => {
         // Update the request status locally instead of full reload
         const request = this.requests.find(r => r.id === id);
         if (request) {
@@ -143,7 +161,8 @@ export class LeaveRequestsComponent implements OnInit {
         }
       },
       error: (error) => {
-        const errorMessage = error.error?.message || 'Failed to approve leave request';
+        // Handle both object and string error responses
+        const errorMessage = error.error?.error || error.error?.message || 'Failed to approve leave request';
         this.approvalErrors[id] = errorMessage;
         
         // Auto-clear error after 5 seconds
@@ -190,9 +209,6 @@ export class LeaveRequestsComponent implements OnInit {
     if (this.form.errors?.['dateRange']) {
       return 'Start date cannot be later than end date';
     }
-    if (this.form.errors?.['noDays']) {
-      return 'Number of days cannot be negative';
-    }
     return '';
   }
 
@@ -201,8 +217,7 @@ export class LeaveRequestsComponent implements OnInit {
       employeeId: 'Employee',
       type: 'Leave Type',
       startDate: 'Start Date',
-      endDate: 'End Date',
-      days: 'Number of Days'
+      endDate: 'End Date'
     };
     return labels[fieldName] || fieldName;
   }
