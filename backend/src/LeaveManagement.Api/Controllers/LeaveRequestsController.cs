@@ -18,6 +18,16 @@ public class LeaveRequestsController : ControllerBase
         _db = db;
     }
 
+    // Helper method: Calculate used vacation days for an employee this year
+    private int GetUsedVacationDays(int employeeId)
+    {
+        return _db.LeaveRequests
+            .Where(r => r.EmployeeId == employeeId
+                        && r.Type == LeaveType.Vacation
+                        && r.Status == LeaveStatus.Approved)
+            .Sum(r => r.Days);
+    }
+
     // GET /api/leave-requests
     [HttpGet]
     public IActionResult GetAll()
@@ -55,17 +65,14 @@ public class LeaveRequestsController : ControllerBase
 
         var days = (dto.EndDate - dto.StartDate).Days + 1;
 
-        // How many vacation days has the employee already used this year?
-        var used = _db.LeaveRequests
-            .Where(r => r.EmployeeId == dto.EmployeeId
-                        && r.Type == LeaveType.Vacation
-                        && r.Status == LeaveStatus.Approved)
-            .Sum(r => r.Days);
-
-        // Make sure the request does not exceed the quota.
-        if (dto.Type == LeaveType.Vacation && (used + days) > employee.AnnualQuota)
+        // Make sure the request does not exceed the quota for vacation requests
+        if (dto.Type == LeaveType.Vacation)
         {
-            return BadRequest($"Not enough vacation balance. Used: {used} days, Requested: {days} days, Annual Quota: {employee.AnnualQuota} days.");
+            var used = GetUsedVacationDays(dto.EmployeeId);
+            if ((used + days) > employee.AnnualQuota)
+            {
+                return BadRequest($"Not enough vacation balance. Used: {used} days, Requested: {days} days, Annual Quota: {employee.AnnualQuota} days.");
+            }
         }
 
         var request = new LeaveRequest
@@ -109,11 +116,7 @@ public class LeaveRequestsController : ControllerBase
         // Step 3: For vacation requests, validate the employee has sufficient balance
         if (request.Type == LeaveType.Vacation && request.Employee != null)
         {
-            var used = _db.LeaveRequests
-                .Where(r => r.EmployeeId == request.EmployeeId
-                            && r.Type == LeaveType.Vacation
-                            && r.Status == LeaveStatus.Approved)
-                .Sum(r => r.Days);
+            var used = GetUsedVacationDays(request.EmployeeId);
 
             if ((used + request.Days) > request.Employee.AnnualQuota)
             {

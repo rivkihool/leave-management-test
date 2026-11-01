@@ -74,22 +74,6 @@
       </span>
     </div>
 
-    <!-- Number of Days -->
-    <div class="form-group">
-      <label for="days">Number of Days *</label>
-      <input
-        id="days"
-        type="number"
-        formControlName="days"
-        placeholder="Number of days"
-        min="1"
-        class="form-control"
-      />
-      <span class="error-message" *ngIf="getErrorMessage('days')">
-        {{ getErrorMessage('days') }}
-      </span>
-    </div>
-
     <!-- Form-level Errors -->
     <div *ngIf="getFormErrorMessage()" class="alert alert-error form-error">
       {{ getFormErrorMessage() }}
