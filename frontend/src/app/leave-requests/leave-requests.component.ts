@@ -1,14 +1,13 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { HttpClient } from '@angular/common/http';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
-import { Subject } from 'rxjs';
+import { Subject, timer, Observable } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
-import { LeaveRequest } from '../models/leave-request.model';
+import { LeaveRequest, LeaveType, LeaveStatus } from '../models/leave-request.model';
+import { LeaveRequestService } from '../services/leave-request.service';
+import { LeaveRequestStateService, ComponentState } from '../services/leave-request-state.service';
 import { dateRangeValidator } from './validators/date-range.validator';
 
-// NOTE: This component was written quickly for a POC.
-// It talks to the API directly, manages state by hand and uses `any` everywhere.
 @Component({
   selector: 'app-leave-requests',
   standalone: true,
@@ -17,25 +16,21 @@ import { dateRangeValidator } from './validators/date-range.validator';
   styleUrls: ['./leave-requests.component.css']
 })
 export class LeaveRequestsComponent implements OnInit, OnDestroy {
-  requests: LeaveRequest[] = [];
-  loading = false;
-  showForm = false;
-  submitting = false;
-  successMessage = '';
-  errorMessage = '';
-
-  // Approval state: tracks loading/error per request ID
-  approvingIds = new Set<number>();
-  approvalErrors: { [requestId: number]: string } = {};
-  approvalSuccess: { [requestId: number]: boolean } = {};
+  // Expose enums to template
+  readonly LeaveType = LeaveType;
+  readonly LeaveStatus = LeaveStatus;
 
   form!: FormGroup;
+  showForm = false; // Toggle form visibility
 
-  private apiUrl = 'http://localhost:5080/api/leave-requests';
+  // State stream from state service — properly typed Observable
+  state$!: Observable<ComponentState>;
+
   private destroy$ = new Subject<void>();
 
   constructor(
-    private http: HttpClient,
+    private leaveRequestService: LeaveRequestService,
+    private stateService: LeaveRequestStateService,
     private fb: FormBuilder
   ) {}
 
@@ -46,10 +41,11 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.initForm();
-    this.load();
+    this.state$ = this.stateService.getState();
+    this.loadRequests();
   }
 
-  initForm(): void {
+  private initForm(): void {
     this.form = this.fb.group(
       {
         employeeId: ['', [Validators.required]],
@@ -63,63 +59,125 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
     );
   }
 
-  load(): void {
-    this.loading = true;
-    this.http.get<LeaveRequest[]>(this.apiUrl)
+  /**
+   * Load all leave requests
+   */
+  loadRequests(): void {
+    this.stateService.setLoading(true);
+
+    this.leaveRequestService.getAll()
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (data) => {
-          this.requests = data;
-          this.loading = false;
+          this.stateService.setRequests(data);
         },
         error: (error) => {
-          this.loading = false;
-          this.errorMessage = 'Failed to load leave requests. Please refresh the page.';
-          console.error('Load error:', error);
+          const errorMsg = this.extractErrorMessage(error) || 'Failed to load leave requests';
+          this.stateService.setError(errorMsg);
         }
       });
   }
 
-
+  /**
+   * Submit new leave request
+   */
   onSubmit(): void {
     if (!this.form.valid) {
       return;
     }
 
-    this.submitting = true;
-    this.errorMessage = '';
-    this.successMessage = '';
+    this.stateService.setSubmitting(true);
 
     const formValue = this.form.value;
     const payload = {
-      employeeId: parseInt(formValue.employeeId),
-      type: parseInt(formValue.type),
+      employeeId: parseInt(formValue.employeeId, 10),
+      type: parseInt(formValue.type, 10) as LeaveType,
       startDate: this.formatDateForApi(formValue.startDate),
       endDate: this.formatDateForApi(formValue.endDate)
     };
 
-    this.http.post<LeaveRequest>(this.apiUrl, payload)
+    this.leaveRequestService.create(payload)
       .pipe(takeUntil(this.destroy$))
       .subscribe({
-      next: () => {
-        this.successMessage = 'Leave request submitted successfully!';
-        this.form.reset();
-        this.showForm = false;
-        this.load();
-        this.submitting = false;
-        setTimeout(() => {
-          this.successMessage = '';
-        }, 5000);
-      },
-      error: (error) => {
-        this.submitting = false;
-        this.errorMessage = error.error?.message || error.error || 'Failed to submit leave request. Please try again.';
-      }
-    });
+        next: () => {
+          this.form.reset();
+          this.toggleForm();
+          // Reload requests after successful creation
+          this.loadRequests();
+          this.stateService.setSubmitting(false);
+        },
+        error: (error) => {
+          const errorMsg = this.extractErrorMessage(error) || 'Failed to submit leave request';
+          this.stateService.setError(errorMsg);
+          this.stateService.setSubmitting(false);
+        }
+      });
   }
 
+  /**
+   * Approve a pending leave request
+   */
+  approve(id: number): void {
+    this.stateService.setApprovingId(id, true);
+    this.stateService.setApprovalError(id, null);
+    this.stateService.setApprovalSuccess(id, false);
+
+    this.leaveRequestService.approve(id)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (response) => {
+          // Update request status locally
+          this.stateService.updateRequest(id, { status: LeaveStatus.Approved });
+          this.stateService.setApprovalSuccess(id, true);
+
+          // Auto-clear success message after 3 seconds using RxJS timer
+          timer(3000)
+            .pipe(takeUntil(this.destroy$))
+            .subscribe(() => {
+              this.stateService.setApprovalSuccess(id, false);
+            });
+        },
+        error: (error) => {
+          const errorMsg = this.extractErrorMessage(error) || 'Failed to approve request';
+          this.stateService.setApprovalError(id, errorMsg);
+          this.stateService.setApprovingId(id, false); // Remove loading state immediately
+
+          // Auto-clear error message after 5 seconds using RxJS timer
+          timer(5000)
+            .pipe(takeUntil(this.destroy$))
+            .subscribe(() => {
+              this.stateService.setApprovalError(id, null);
+            });
+        },
+        complete: () => {
+          // Always remove loading state, whether success or error
+          this.stateService.setApprovingId(id, false);
+        }
+      });
+  }
+
+  /**
+   * Toggle form visibility
+   */
+  toggleForm(): void {
+    const currentState = this.stateService.getCurrentState();
+    
+    if (currentState.submitting) {
+      return; // Prevent toggling while submitting
+    }
+
+    this.showForm = !this.showForm;
+    
+    if (!this.showForm) {
+      this.form.reset();
+      this.stateService.setError(null);
+    }
+  }
+
+  /**
+   * Format date string to YYYY-MM-DD format
+   */
   private formatDateForApi(date: string): string {
-    // Ensure the date is formatted as YYYY-MM-DD
     if (!date) return '';
     const d = new Date(date);
     const year = d.getFullYear();
@@ -128,67 +186,19 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
     return `${year}-${month}-${day}`;
   }
 
-  toggleForm(): void {
-    this.showForm = !this.showForm;
-    if (!this.showForm) {
-      this.form.reset();
-      this.errorMessage = '';
+  /**
+   * Extract error message from various error formats
+   */
+  private extractErrorMessage(error: any): string {
+    if (typeof error === 'string') {
+      return error;
     }
+    return error?.error?.error || error?.error?.message || '';
   }
 
-  approve(id: number): void {
-    // Set loading state for this specific request
-    this.approvingIds.add(id);
-    
-    // Clear any previous error/success messages for this request
-    delete this.approvalErrors[id];
-    delete this.approvalSuccess[id];
-
-    this.http.post<{ message: string; data: LeaveRequest }>(`${this.apiUrl}/${id}/approve`, {})
-      .pipe(takeUntil(this.destroy$))
-      .subscribe({
-      next: (response) => {
-        // Update the request status locally instead of full reload
-        const request = this.requests.find(r => r.id === id);
-        if (request) {
-          request.status = 1; // 1 = Approved
-          this.approvalSuccess[id] = true;
-          
-          // Auto-clear success message after 3 seconds
-          setTimeout(() => {
-            delete this.approvalSuccess[id];
-          }, 3000);
-        }
-      },
-      error: (error) => {
-        // Handle both object and string error responses
-        const errorMessage = error.error?.error || error.error?.message || 'Failed to approve leave request';
-        this.approvalErrors[id] = errorMessage;
-        
-        // Auto-clear error after 5 seconds
-        setTimeout(() => {
-          delete this.approvalErrors[id];
-        }, 5000);
-      },
-      complete: () => {
-        // Always remove loading state
-        this.approvingIds.delete(id);
-      }
-    });
-  }
-
-  typeLabel(type: number): string {
-    if (type == 0) return 'Vacation';
-    if (type == 1) return 'Sick';
-    return 'Unpaid';
-  }
-
-  statusLabel(status: number): string {
-    if (status == 0) return 'Pending';
-    if (status == 1) return 'Approved';
-    return 'Rejected';
-  }
-
+  /**
+   * Get field error message for form validation
+   */
   getErrorMessage(fieldName: string): string {
     const field = this.form.get(fieldName);
     if (!field || !field.errors || !field.touched) {
@@ -205,6 +215,9 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
     return '';
   }
 
+  /**
+   * Get form-level error message
+   */
   getFormErrorMessage(): string {
     if (this.form.errors?.['dateRange']) {
       return 'Start date cannot be later than end date';
@@ -212,6 +225,9 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
     return '';
   }
 
+  /**
+   * Get human-readable field label
+   */
   private getFieldLabel(fieldName: string): string {
     const labels: { [key: string]: string } = {
       employeeId: 'Employee',
@@ -220,5 +236,37 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
       endDate: 'End Date'
     };
     return labels[fieldName] || fieldName;
+  }
+
+  /**
+   * Get human-readable label for LeaveType enum
+   */
+  leaveTypeLabel(type: LeaveType): string {
+    switch (type) {
+      case LeaveType.Vacation:
+        return 'Vacation';
+      case LeaveType.Sick:
+        return 'Sick';
+      case LeaveType.Unpaid:
+        return 'Unpaid';
+      default:
+        return 'Unknown';
+    }
+  }
+
+  /**
+   * Get human-readable label for LeaveStatus enum
+   */
+  leaveStatusLabel(status: LeaveStatus): string {
+    switch (status) {
+      case LeaveStatus.Pending:
+        return 'Pending';
+      case LeaveStatus.Approved:
+        return 'Approved';
+      case LeaveStatus.Rejected:
+        return 'Rejected';
+      default:
+        return 'Unknown';
+    }
   }
 }

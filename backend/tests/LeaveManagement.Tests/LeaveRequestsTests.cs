@@ -1,5 +1,8 @@
 using LeaveManagement.Api.Controllers;
 using LeaveManagement.Api.Models;
+using LeaveManagement.Api.Repositories;
+using LeaveManagement.Api.Services;
+using LeaveManagement.Api.Validators;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
 
@@ -15,7 +18,7 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
     }
 
     [Fact]
-    public void Create_WithinQuota_Succeeds()
+    public async Task Create_WithinQuota_Succeeds()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -23,28 +26,27 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.Employees.Add(emp);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
-        // Act: request 3 days, well within the quota.
-        var result = controller.Create(new CreateLeaveRequestDto
+        var dto = new CreateLeaveRequestDto
         {
             EmployeeId = emp.Id,
             Type = LeaveType.Vacation,
             StartDate = new DateTime(2026, 3, 1),
             EndDate = new DateTime(2026, 3, 3)
-        });
+        };
 
-        // Assert
-        Assert.IsType<OkObjectResult>(result);
+        // Act & Assert
+        var result = await service.CreateAsync(dto, emp);
+        Assert.NotNull(result);
+        Assert.Equal(LeaveStatus.Pending, result.Status);
         Assert.Single(db.LeaveRequests);
     }
 
-    // TODO (candidate): add a test that proves the balance bug is fixed —
-    // an employee who has already used most of the quota should NOT be able
-    // to create a request that pushes them over the annual quota.
-
     [Fact]
-    public void Create_ExceedsQuota_ReturnsBadRequest()
+    public async Task Create_ExceedsQuota_ThrowsException()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -65,26 +67,28 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(existingRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
-        // Act: try to request 4 additional days (18 + 4 = 22, which exceeds the 20-day quota)
-        var result = controller.Create(new CreateLeaveRequestDto
+        var dto = new CreateLeaveRequestDto
         {
             EmployeeId = emp.Id,
             Type = LeaveType.Vacation,
             StartDate = new DateTime(2026, 3, 1),
             EndDate = new DateTime(2026, 3, 4)
-        });
+        };
 
-        // Assert
-        Assert.IsType<BadRequestObjectResult>(result);
-        Assert.Equal(1, db.LeaveRequests.Count()); // Should still only have the original request
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.CreateAsync(dto, emp));
+        Assert.Contains("Not enough vacation balance", ex.Message);
+        Assert.Equal(1, db.LeaveRequests.Count());
     }
 
     // ============ APPROVE ENDPOINT TESTS ============
 
     [Fact]
-    public void Approve_PendingRequest_Succeeds()
+    public async Task Approve_PendingRequest_Succeeds()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -104,33 +108,35 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(leaveRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
         // Act
-        var result = controller.Approve(leaveRequest.Id);
+        var result = await service.ApproveAsync(leaveRequest.Id);
 
         // Assert
-        Assert.IsType<OkObjectResult>(result);
-        var updatedRequest = db.LeaveRequests.First(r => r.Id == leaveRequest.Id);
-        Assert.Equal(LeaveStatus.Approved, updatedRequest.Status);
+        Assert.NotNull(result);
+        Assert.Equal(LeaveStatus.Approved, result.Status);
     }
 
     [Fact]
-    public void Approve_NonExistentRequest_ReturnsNotFound()
+    public async Task Approve_NonExistentRequest_ThrowsKeyNotFoundException()
     {
         // Arrange
         using var db = _database.NewDb();
-        var controller = new LeaveRequestsController(db);
 
-        // Act
-        var result = controller.Approve(999);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
-        // Assert
-        Assert.IsType<NotFoundObjectResult>(result);
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<KeyNotFoundException>(() => service.ApproveAsync(999));
+        Assert.Contains("not found", ex.Message);
     }
 
     [Fact]
-    public void Approve_AlreadyApprovedRequest_ReturnsBadRequest()
+    public async Task Approve_AlreadyApprovedRequest_ThrowsException()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -150,19 +156,17 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(leaveRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
-        // Act
-        var result = controller.Approve(leaveRequest.Id);
-
-        // Assert
-        Assert.IsType<BadRequestObjectResult>(result);
-        var badRequest = result as BadRequestObjectResult;
-        Assert.NotNull(badRequest);
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApproveAsync(leaveRequest.Id));
+        Assert.Contains("Cannot approve", ex.Message);
     }
 
     [Fact]
-    public void Approve_RejectedRequest_ReturnsBadRequest()
+    public async Task Approve_RejectedRequest_ThrowsException()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -182,17 +186,17 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(leaveRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
-        // Act
-        var result = controller.Approve(leaveRequest.Id);
-
-        // Assert
-        Assert.IsType<BadRequestObjectResult>(result);
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApproveAsync(leaveRequest.Id));
+        Assert.Contains("Cannot approve", ex.Message);
     }
 
     [Fact]
-    public void Approve_VacationRequestExceedsQuota_ReturnsBadRequest()
+    public async Task Approve_VacationRequestExceedsQuota_ThrowsException()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -225,22 +229,21 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(pendingRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
-        // Act
-        var result = controller.Approve(pendingRequest.Id);
-
-        // Assert
-        Assert.IsType<BadRequestObjectResult>(result);
-        var badRequest = result as BadRequestObjectResult;
-        Assert.NotNull(badRequest);
+        // Act & Assert
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApproveAsync(pendingRequest.Id));
+        Assert.Contains("Not enough vacation balance", ex.Message);
+        
         // Request should still be Pending
         var unchangedRequest = db.LeaveRequests.First(r => r.Id == pendingRequest.Id);
         Assert.Equal(LeaveStatus.Pending, unchangedRequest.Status);
     }
 
     [Fact]
-    public void Approve_VacationRequestWithinQuota_Succeeds()
+    public async Task Approve_VacationRequestWithinQuota_Succeeds()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -273,19 +276,20 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(pendingRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
         // Act
-        var result = controller.Approve(pendingRequest.Id);
+        var result = await service.ApproveAsync(pendingRequest.Id);
 
         // Assert
-        Assert.IsType<OkObjectResult>(result);
-        var approvedPendingRequest = db.LeaveRequests.First(r => r.Id == pendingRequest.Id);
-        Assert.Equal(LeaveStatus.Approved, approvedPendingRequest.Status);
+        Assert.NotNull(result);
+        Assert.Equal(LeaveStatus.Approved, result.Status);
     }
 
     [Fact]
-    public void Approve_SickLeaveRequest_IgnoresQuota()
+    public async Task Approve_SickLeaveRequest_IgnoresQuota()
     {
         // Arrange
         using var db = _database.NewDb();
@@ -318,15 +322,16 @@ public class LeaveRequestsTests : IClassFixture<TestDatabase>
         db.LeaveRequests.Add(sickLeaveRequest);
         db.SaveChanges();
 
-        var controller = new LeaveRequestsController(db);
+        var repository = new LeaveRequestRepository(db);
+        var validator = new VacationQuotaValidator(repository);
+        var service = new LeaveRequestService(repository, validator);
 
         // Act
-        var result = controller.Approve(sickLeaveRequest.Id);
+        var result = await service.ApproveAsync(sickLeaveRequest.Id);
 
         // Assert
-        Assert.IsType<OkObjectResult>(result);
-        var approvedSickLeave = db.LeaveRequests.First(r => r.Id == sickLeaveRequest.Id);
-        Assert.Equal(LeaveStatus.Approved, approvedSickLeave.Status);
+        Assert.NotNull(result);
+        Assert.Equal(LeaveStatus.Approved, result.Status);
     }
 }
 
