@@ -30,6 +30,12 @@ public class LeaveRequestService : ILeaveRequestService
 
     public async Task<LeaveRequest> CreateAsync(CreateLeaveRequestDto dto, Employee employee)
     {
+        // בדיקה בBackend - תאריכים תקינים
+        if (dto.StartDate > dto.EndDate)
+        {
+            throw new InvalidOperationException("Startש date cannot be after end date");
+        }
+
         var days = (dto.EndDate - dto.StartDate).Days + 1;
 
         // Validate vacation quota if this is a vacation request
