@@ -51,12 +51,62 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
         employeeId: ['', [Validators.required]],
         type: ['', [Validators.required]],
         startDate: ['', [Validators.required]],
-        endDate: ['', [Validators.required]]
+        endDate: ['', [Validators.required]],
+        days: ['', [Validators.required, this.validateDays.bind(this)]]
       },
       {
-        validators: [dateRangeValidator()]
+        validators: [dateRangeValidator(), this.validateDaysMatch.bind(this)]
       }
     );
+  }
+
+  /**
+   * Custom validator for days field - checks for negative and minimum value
+   */
+  private validateDays(control: any) {
+    const value = control.value;
+    
+    if (value === null || value === undefined || value === '') {
+      return null; // required validator handles this
+    }
+
+    const numValue = Number(value);
+
+    // Check if negative
+    if (numValue < 0) {
+      return { negative: true };
+    }
+
+    // Check if less than 1
+    if (numValue < 1) {
+      return { min: { min: 1 } };
+    }
+
+    return null;
+  }
+
+  /**
+   * Form-level validator to check if days match the date range
+   */
+  private validateDaysMatch(formGroup: any) {
+    const startDate = formGroup.get('startDate')?.value;
+    const endDate = formGroup.get('endDate')?.value;
+    const days = formGroup.get('days')?.value;
+
+    if (!startDate || !endDate || !days) {
+      return null; // Don't validate if fields are empty
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const calculatedDays = Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    const inputDays = Number(days);
+
+    if (calculatedDays !== inputDays) {
+      return { daysMismatch: { expected: calculatedDays, provided: inputDays } };
+    }
+
+    return null;
   }
 
   /**
@@ -93,7 +143,8 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
       employeeId: parseInt(formValue.employeeId, 10),
       type: parseInt(formValue.type, 10) as LeaveType,
       startDate: this.formatDateForApi(formValue.startDate),
-      endDate: this.formatDateForApi(formValue.endDate)
+      endDate: this.formatDateForApi(formValue.endDate),
+      days: parseInt(formValue.days, 10)
     };
 
     this.leaveRequestService.create(payload)
@@ -208,6 +259,16 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
     if (field.errors['required']) {
       return `${this.getFieldLabel(fieldName)} is required`;
     }
+
+    if (fieldName === 'days') {
+      if (field.errors['negative']) {
+        return 'Cannot enter negative value';
+      }
+      if (field.errors['min']) {
+        return 'Must be at least 1 day';
+      }
+    }
+
     if (field.errors['min']) {
       return `${this.getFieldLabel(fieldName)} must be at least ${field.errors['min'].min}`;
     }
@@ -222,6 +283,11 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
     if (this.form.errors?.['dateRange']) {
       return 'Start date cannot be later than end date';
     }
+    if (this.form.errors?.['daysMismatch']) {
+      const expected = this.form.errors['daysMismatch'].expected;
+      const provided = this.form.errors['daysMismatch'].provided;
+      return `Days mismatch: date range is ${expected} day(s), but you entered ${provided}`;
+    }
     return '';
   }
 
@@ -233,7 +299,8 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
       employeeId: 'Employee',
       type: 'Leave Type',
       startDate: 'Start Date',
-      endDate: 'End Date'
+      endDate: 'End Date',
+      days: 'Number of Days'
     };
     return labels[fieldName] || fieldName;
   }

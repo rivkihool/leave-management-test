@@ -33,10 +33,16 @@ public class LeaveRequestService : ILeaveRequestService
         // בדיקה בBackend - תאריכים תקינים
         if (dto.StartDate > dto.EndDate)
         {
-            throw new InvalidOperationException("Startש date cannot be after end date");
+            throw new InvalidOperationException("Start date cannot be after end date");
         }
 
-        var days = (dto.EndDate - dto.StartDate).Days + 1;
+        // בדיקה שמספר הימים חוקי
+        if (dto.Days <= 0)
+        {
+            throw new InvalidOperationException("Number of days must be greater than 0. Negative or zero days are not allowed");
+        }
+
+        var days = dto.Days;
 
         // Validate vacation quota if this is a vacation request
         if (dto.Type == LeaveType.Vacation)

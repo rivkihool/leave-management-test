@@ -7,4 +7,5 @@ public class CreateLeaveRequestDto
     public LeaveType Type { get; set; }
     public DateTime StartDate { get; set; }
     public DateTime EndDate { get; set; }
+    public int Days { get; set; }
 }
