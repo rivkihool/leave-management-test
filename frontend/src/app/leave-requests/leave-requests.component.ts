@@ -1,6 +1,7 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormBuilder, FormGroup, Validators } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { Subject, timer, Observable } from 'rxjs';
 import { takeUntil } from 'rxjs/operators';
 import { LeaveRequest, LeaveType, LeaveStatus } from '../models/leave-request.model';
@@ -11,7 +12,7 @@ import { dateRangeValidator } from './validators/date-range.validator';
 @Component({
   selector: 'app-leave-requests',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule],
+  imports: [CommonModule, ReactiveFormsModule, FormsModule],
   templateUrl: './leave-requests.component.html',
   styleUrls: ['./leave-requests.component.css']
 })
@@ -22,6 +23,7 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
 
   form!: FormGroup;
   showForm = false; // Toggle form visibility
+  searchTerm = ''; // Search term
 
   // State stream from state service — properly typed Observable
   state$!: Observable<ComponentState>;
@@ -223,6 +225,39 @@ export class LeaveRequestsComponent implements OnInit, OnDestroy {
       this.form.reset();
       this.stateService.setError(null);
     }
+  }
+
+  /**
+   * Search for leave requests by employee name
+   */
+  search(): void {
+    if (!this.searchTerm.trim()) {
+      return;
+    }
+
+    this.stateService.setLoading(true);
+
+    this.leaveRequestService.search(this.searchTerm)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (data) => {
+          this.stateService.setRequests(data);
+          this.stateService.setLoading(false);
+        },
+        error: (error) => {
+          const errorMsg = this.extractErrorMessage(error) || 'Failed to search leave requests';
+          this.stateService.setError(errorMsg);
+          this.stateService.setLoading(false);
+        }
+      });
+  }
+
+  /**
+   * Clear search and load all requests
+   */
+  clearSearch(): void {
+    this.searchTerm = '';
+    this.loadRequests();
   }
 
   /**

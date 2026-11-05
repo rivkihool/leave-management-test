@@ -13,6 +13,32 @@
     {{ showForm ? 'Cancel' : 'New Request' }}
   </button>
 
+  <!-- Search Box -->
+  <div class="search-container">
+    <input
+      type="text"
+      [(ngModel)]="searchTerm"
+      placeholder="Search by employee name..."
+      class="search-input"
+      (keyup.enter)="search()"
+    />
+    <button
+      class="btn btn-secondary"
+      (click)="search()"
+      [disabled]="state.loading"
+    >
+      Search
+    </button>
+    <button
+      class="btn btn-secondary"
+      (click)="clearSearch()"
+      *ngIf="searchTerm"
+      [disabled]="state.loading"
+    >
+      Clear
+    </button>
+  </div>
+
   <!-- New Request Form -->
   <div *ngIf="showForm" class="form-container">
     <h3>Submit New Leave Request</h3>

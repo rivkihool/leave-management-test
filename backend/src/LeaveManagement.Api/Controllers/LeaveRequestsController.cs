@@ -74,5 +74,21 @@ public class LeaveRequestsController : ControllerBase
             return BadRequest(new { error = ex.Message });
         }
     }
+
+    // GET /api/leave-requests/search?name=Dana
+    // Search leave requests by employee name
+    [HttpGet("search")]
+    public IActionResult Search([FromQuery] string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return BadRequest(new { error = "Search name cannot be empty" });
+
+        var results = _db.LeaveRequests
+            .Include(lr => lr.Employee)
+            .Where(lr => lr.Employee != null && lr.Employee.Name.Contains(name))
+            .ToList();
+
+        return Ok(results);
+    }
 }
 
