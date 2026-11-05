@@ -31,4 +31,11 @@ export class LeaveRequestService {
   approve(id: number): Observable<LeaveRequestResponse> {
     return this.http.post<LeaveRequestResponse>(`${this.apiUrl}/${id}/approve`, {});
   }
+
+  /**
+   * Search leave requests by employee name
+   */
+  search(name: string): Observable<LeaveRequest[]> {
+    return this.http.get<LeaveRequest[]>(`${this.apiUrl}/search?name=${encodeURIComponent(name)}`);
+  }
 }
